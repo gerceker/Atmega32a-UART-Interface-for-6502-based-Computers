@@ -1,17 +1,16 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include "pins.h"
 #include "uart.h"
+#include "i2c.h"
+#include "eeprom.h"
 
-#define TX_REQ PD2      // INT0
-#define RX_REQ PD3      // INT1
-#define TX_ACK PD4      // Output
-#define RX_NEW_DATA PD5 // Output
-
-#define BUFFER_LEN 1024
 volatile char rx_buffer[BUFFER_LEN];
-volatile int head = 0; 
-volatile int tail = 0; 
+volatile int head = 0;
+volatile int tail = 0;
+volatile int eeprom_loader = 0;
+volatile uint8_t last_command;
 
 void interrupt_init(void) 
 {
@@ -40,11 +39,13 @@ ISR(USART_RXC_vect)
 ISR(INT0_vect) 
 {
     uint8_t data = PINA;             // Read from data bus
-    UART_transmit(data);
-    
+    uint8_t command = PIND & (1 << COMMAND);
+    if (!command) UART_transmit(data);
+    else last_command = data;
     PORTD &= ~(1 << TX_ACK);         // Set TX ACK low (Data received)
     while (!(PIND & (1 << TX_REQ))); // Wait until 6502 releases TX REQ
     PORTD |= (1 << TX_ACK);          // Set TX ACK high (Ready)
+
 }
 
 // ATmega to 6502 transmission
@@ -55,29 +56,42 @@ ISR(INT1_vect)
         DDRA = 0xFF;                 // Set data bus as output
         PORTA = rx_buffer[tail];     // Put data on bus
         tail = (tail + 1) % BUFFER_LEN;
-        
         PORTD |= (1 << RX_NEW_DATA); // Set high (Data is ready on bus)
         while (!(PIND & (1 << RX_REQ))); // Wait until 6502 releases RX REQ
-        
         DDRA = 0x00;                 // Set data bus back to input
         PORTA = 0x00;
     }
 }
+
+
 
 int main(void) 
 {
     DDRA = 0x00;                     // Set data bus as input initially
     PORTA = 0x00;
 
-    DDRD |= (1 << TX_ACK) | (1 << RX_NEW_DATA); // Set control pins as output
+    DDRD |= (1 << TX_ACK) | (1 << RX_NEW_DATA) | (0 << COMMAND); // Set control pins
     PORTD |= (1 << TX_ACK);                     // Default HIGH
     PORTD |= (1 << RX_NEW_DATA);                // Default HIGH (No data)
+    PORTD |= (1 << COMMAND);                // Default HIGH (No data)
 
     UART_init(9600);
+    I2C_Init();
     interrupt_init();
-
+    
     while (1) 
     {
+        switch (last_command)
+        {
+            case 0x01:
+                setEEPROMpointer(0);
+                readEEPROM();
+                break;
+            default:
+                break;
+        }
+
+        
         if (head != tail) 
         {
             PORTD &= ~(1 << RX_NEW_DATA); // Data available (Active-Low)
@@ -87,5 +101,6 @@ int main(void)
             PORTD |= (1 << RX_NEW_DATA);  // Buffer empty
         }
     }
+    
     return 0;
 }
