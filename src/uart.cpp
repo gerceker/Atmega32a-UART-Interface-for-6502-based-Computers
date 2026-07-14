@@ -16,6 +16,26 @@ void UART_transmit(char data) {
     UDR = data;
 }
 
+void UART_write(char* str) {
+    while (*str != '\0'){
+        UART_transmit(*str);
+        str++;
+    }
+}
+
+void UART_writeline(char* str) {
+    UART_write(str);
+    UART_write("\r\n");
+}
+
 char UART_receive(void) {
     while (!(UCSRA & (1 << RXC)));
+}
+
+char readData()
+{
+    if (tx_head == tx_tail) return 0xff;
+    char data = tx_buffer[tx_tail];     
+    tx_tail = (tx_tail + 1) % BUFFER_LEN_TX;
+    return data;
 }

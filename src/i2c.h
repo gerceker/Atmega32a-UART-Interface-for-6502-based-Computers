@@ -5,6 +5,8 @@ void I2C_Init();
 void I2C_Start();
 void I2C_Write(unsigned char data);
 void I2C_Stop();
+
+uint8_t I2C_Write_Timeout(unsigned char data);
 unsigned char I2C_Read_ACK();
 unsigned char I2C_Read_NACK();
 

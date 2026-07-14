@@ -6,11 +6,17 @@
 #include "i2c.h"
 #include "eeprom.h"
 
-volatile char rx_buffer[BUFFER_LEN];
-volatile int head = 0;
-volatile int tail = 0;
+volatile char rx_buffer[BUFFER_LEN_RX];
+volatile int rx_head = 0;
+volatile int rx_tail = 0;
+
+volatile char tx_buffer[BUFFER_LEN_TX];
+volatile int tx_head = 0;
+volatile int tx_tail = 0;
+
 volatile int eeprom_loader = 0;
-volatile uint8_t last_command;
+volatile uint8_t command;
+
 
 void interrupt_init(void) 
 {
@@ -27,11 +33,11 @@ void interrupt_init(void)
 ISR(USART_RXC_vect)
 {
     char rx_data = UDR;
-    int next_head = (head + 1) % BUFFER_LEN; 
-    if (next_head != tail) 
+    int next_head = (rx_head + 1) % BUFFER_LEN_RX; 
+    if (next_head != rx_tail) 
     {
-        rx_buffer[head] = rx_data;
-        head = next_head;
+        rx_buffer[rx_head] = rx_data;
+        rx_head = next_head;
     }
 }
 
@@ -39,30 +45,39 @@ ISR(USART_RXC_vect)
 ISR(INT0_vect) 
 {
     uint8_t data = PINA;             // Read from data bus
-    uint8_t command = PIND & (1 << COMMAND);
-    if (!command) UART_transmit(data);
-    else last_command = data;
+    uint8_t command_mode = PIND & (1 << COMMAND);
+    if (!command_mode){
+        UART_transmit(data);
+    }
+    else {
+        int next_head = (tx_head + 1) % BUFFER_LEN_TX; 
+        if (next_head != tx_tail) 
+        {
+           
+            tx_buffer[tx_head] = data;
+            tx_head = next_head;
+        }
+    }
+
     PORTD &= ~(1 << TX_ACK);         // Set TX ACK low (Data received)
     while (!(PIND & (1 << TX_REQ))); // Wait until 6502 releases TX REQ
     PORTD |= (1 << TX_ACK);          // Set TX ACK high (Ready)
-
 }
 
 // ATmega to 6502 transmission
 ISR(INT1_vect)  
 {
-    if (head != tail) 
+    if (rx_head != rx_tail) 
     {
         DDRA = 0xFF;                 // Set data bus as output
-        PORTA = rx_buffer[tail];     // Put data on bus
-        tail = (tail + 1) % BUFFER_LEN;
+        PORTA = rx_buffer[rx_tail];     // Put data on bus
+        rx_tail = (rx_tail + 1) % BUFFER_LEN_RX;
         PORTD |= (1 << RX_NEW_DATA); // Set high (Data is ready on bus)
         while (!(PIND & (1 << RX_REQ))); // Wait until 6502 releases RX REQ
         DDRA = 0x00;                 // Set data bus back to input
         PORTA = 0x00;
     }
 }
-
 
 
 int main(void) 
@@ -81,25 +96,26 @@ int main(void)
     
     while (1) 
     {
-        switch (last_command)
+        command = readData();
+        
+        switch (command)
         {
             case 0x01:
-                setEEPROMpointer(0);
-                readEEPROM();
+                    _delay_ms(10);
+                    UART_writeline("SEARCHING... ");
+                    setEEPROMpointer(0);
+                    readEEPROM();
+                    
+                break;
+            case 0x02:
+                setEEPROM();
                 break;
             default:
                 break;
         }
 
-        
-        if (head != tail) 
-        {
-            PORTD &= ~(1 << RX_NEW_DATA); // Data available (Active-Low)
-        }
-        else 
-        {
-            PORTD |= (1 << RX_NEW_DATA);  // Buffer empty
-        }
+        if (rx_head != rx_tail) PORTD &= ~(1 << RX_NEW_DATA); // Data available (Active-Low)        
+        else  PORTD |= (1 << RX_NEW_DATA);  // Buffer empty
     }
     
     return 0;

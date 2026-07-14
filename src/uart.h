@@ -4,16 +4,25 @@
 #include "pins.h"
 #include <avr/io.h>
 
-#define BUFFER_LEN 1024
+#define BUFFER_LEN_RX 512
+#define BUFFER_LEN_TX 16
 
-extern volatile char rx_buffer[BUFFER_LEN];
-extern volatile int head;
-extern volatile int tail;
-extern volatile uint8_t last_command;
+
+extern volatile char rx_buffer[BUFFER_LEN_RX];
+extern volatile int rx_head;
+extern volatile int rx_tail;
+
+extern volatile char tx_buffer[BUFFER_LEN_TX];
+extern volatile int tx_head;
+extern volatile int tx_tail;
+
 
 void UART_init(uint32_t baudrate);
 void UART_transmit(char data);
 char UART_receive(void);
-void UART_print(const char* str);
+void UART_write(char* str);
+void UART_writeline(char* str);
+
+char readData();
 
 #endif 
